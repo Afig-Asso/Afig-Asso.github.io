@@ -80,7 +80,7 @@ function get_string_recursive(element, out) {
         const url = element['url']
         const name = element['Name']
         if(url!=undefined){
-            txt += `<a href="${url}">`
+            txt += `<a target="_blank" href="${url}">`
         }
         if(name!=undefined){
             txt += name;
@@ -244,14 +244,13 @@ function export_places_to_txt(data) {
 
 function display_company_entry(entry) {
 
-    
     const name = entry['Name'];
     let id = name.replace(/[^A-Z0-9]/ig, "_");
     const url = entry['url'];
     if(UX['details'].checked==false) {
         return `
         <div id="${id}">\n
-        <h3><a href="${url}">${name}</a></h3> <br>\n
+        <h3><a target="_blank" href="${url}">${name}</a></h3> <br>\n
         </div>
         `;
     }
@@ -279,7 +278,7 @@ function display_company_entry(entry) {
     let txt = ''
 
     txt += `<div id="${id}">\n`;
-    txt += `<h3><a href="${url}">${name}</a></h3> ${name_long} <br>\n`;
+    txt += `<h3><a target="_blank" href="${url}">${name}</a></h3> ${name_long} <br>\n`;
     txt += `<div class="content">\n`;
     txt += display_div(description, 'description');
     txt += display_div(info, 'info', '<strong>Remarque</strong>: ');
@@ -291,7 +290,7 @@ function display_company_entry(entry) {
     txt += display_div(scientific_domain, 'scientific-domain', '<strong>Domaine scientifique</strong>: ');
     txt += display_div(application_domain, 'application-domain', "<strong>Domaine d'application</strong>: ");
     if(jobs!=''){
-        txt += `[<a href="${jobs}">Jobs</a>]\n`
+        txt += `[<a target="_blank" href="${jobs}">Jobs</a>]\n`
     }
 
 
