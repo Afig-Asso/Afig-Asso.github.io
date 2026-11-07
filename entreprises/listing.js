@@ -7,61 +7,126 @@
 const url = 'https://raw.githubusercontent.com/Afig-Asso/entreprises/main/json/data.json'
 
 const listing_element = document.querySelector('#listing-company');
+const summary_element = document.querySelector('#listing-summary');
 
-const selection_element = document.querySelector('#selection-listing-company');
-
-
-
+// Controls of the toolbar (static HTML in index.html)
 const UX = {
-    'sorting': {'alphabetical':null, 'place':null},
-    'details': null,
-    'filter-keyword-container': {
-        'scientific-domain':null, 
-        'application-domain':null, 
-        'check':{'scientific':null, 'application':null},
-        'uncheck':{'scientific':null, 'application':null},
+    'sorting': {
+        'alphabetical': document.querySelector('#sort-alphabetical'),
+        'place': document.querySelector('#sort-place'),
+        'map': document.querySelector('#sort-map'),
     },
-    'filter-keyword-scientific-domain': [],
-    'filter-keyword-application-domain': [],
+    'details': document.querySelector('#display-details'),
+    'france-only': document.querySelector('#france-only'),
+    'jobs-only': document.querySelector('#jobs-only'),
+    'search': document.querySelector('#search-company'),
+    'filter-toggle': document.querySelector('#filter-toggle'),
+    'filter-count': document.querySelector('#filter-toggle .filter-count'),
+    'filter-panel': document.querySelector('#filter-panel'),
+    'filter-close': document.querySelector('#filter-close'),
+    'active-filters': document.querySelector('#active-filters'),
+    'filter-options': {
+        'scientific': document.querySelector('.filter-group[data-domain="scientific"] .filter-options'),
+        'application': document.querySelector('.filter-group[data-domain="application"] .filter-options'),
+    },
+};
+
+// Name of the domain keys in data.json
+const DOMAIN_KEY = {
+    'scientific': 'Scientific-domain',
+    'application': 'Application-domain',
 };
 
 const Global = {
-    'active-keyword-set': {
-        'scientific': null,
-        'application': null,
+    // How the keywords of one domain are combined: 'or' (at least one) or 'and' (all: crossing themes)
+    'mode': {
+        'scientific': 'or',
+        'application': 'or',
     },
-    'active-entry': null, // company entry that are currently displayed
-}
+    // Keywords selected in the filter panel. Empty set = no filter on this domain.
+    'selected': {
+        'scientific': new Set(),
+        'application': new Set(),
+    },
+    'search-text': null, // per company: searchable text (name, description, places, themes...), without accents
+    'in-france': null, // per company: true if the company has at least one place in France
+    'has-jobs': null, // per company: true if a job page is given
+    'rendered-ids': null, // ids already used in the current rendering (a company can appear several times by place)
+};
 
+// Badges shown next to the name, from the 'Highlight' key of data.yaml
+const HIGHLIGHT_BADGES = [
+    {'match': (h) => h.includes('Graphics') && h.includes('R&D'), 'text': 'Acteur majeur du graphique, R&amp;D en France'},
+    {'match': (h) => h.includes('R&D'), 'text': 'R&amp;D en France'},
+];
+
+const NEW_TAB = '<span class="visually-hidden"> (nouvel onglet)</span>';
 
 let company_data;
 
 
 
-
 fetch(url)
 .then(convertJSON)
-.then(answer);
+.then(answer)
+.catch(display_loading_error);
 
 function convertJSON(response){
+  if(!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
   return response.json();
 }
 
-
-
-
-function neutral_str(s){
-    return s.toLowerCase();
+function display_loading_error(error) {
+    console.log('Error while loading the listing', error);
+    summary_element.textContent = '';
+    listing_element.innerHTML = `
+    <p class="loading-message loading-error" role="alert">
+    Impossible de charger la liste des entreprises (${error.message}).
+    Réessayez dans quelques instants, ou consultez directement
+    <a target="_blank" href="https://github.com/Afig-Asso/entreprises">le dépôt GitHub du listing${NEW_TAB}</a>.
+    </p>`;
 }
 
 
 
+// ---------------------------------------------------------------------------
+// String helpers
+// ---------------------------------------------------------------------------
+
+// Lowercase without accents, used for the text search
+function search_str(s){
+    return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+// French alphabetical order (accents and case ignored: "Évry" goes with the E)
+function compare_fr(a, b){
+    return a.localeCompare(b, 'fr', {sensitivity: 'base'});
+}
+
+function strip_html(s){
+    return String(s).replace(/<[^>]*>/g, ' ');
+}
+
+// Escape a value placed inside an HTML attribute or text
+function esc(s){
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function is_type_string(element) {
+    return (typeof element=="string");
+}
+function is_type_array(element) {
+    return Array.isArray(element);
+}
+
 function get_string_recursive(element, out) {
-    
+
     if(element==undefined){
         return;
     }
-    else if((typeof element=="string") || (typeof stringObject=="string")) {
+    else if(is_type_string(element)) {
         if(out[0]!=''){
             out[0] += ', ';
         }
@@ -70,7 +135,7 @@ function get_string_recursive(element, out) {
     else if(typeof element=='number') {
         out[0] += element;
     }
-    else if(Array.isArray(element)==true) {
+    else if(is_type_array(element)) {
         for(let e of element) {
             get_string_recursive(e, out);
         }
@@ -86,7 +151,7 @@ function get_string_recursive(element, out) {
             txt += name;
         }
         if(url!=undefined){
-            txt += `</a>`
+            txt += `${NEW_TAB}</a>`
         }
 
         if(txt!=''){
@@ -94,91 +159,71 @@ function get_string_recursive(element, out) {
                 out[0] += ', ';
             }
             out[0] += txt
-        }        
+        }
     }
-
-
-
 }
 
 function get_string(element) {
     let out = ['']
     get_string_recursive(element, out);
-    return out;
+    return out[0];
 }
 
-function display_div(txt, className, pre='') {
-    if(txt==''){
-        return '';
-    }
 
-    return `<div class="${className}">${pre}${txt}</div>\n`;
-}
 
-function is_type_string(element) {
-    return ((typeof element=="string") || (typeof stringObject=="string"));
-}
-function is_type_array(element) {
-    return Array.isArray(element);
-}
+// ---------------------------------------------------------------------------
+// Places
+// ---------------------------------------------------------------------------
 
+// Normalize the 'Place' entry into a list of dictionaries {Country, State, City, Exact, International}.
+// A plain string is a French city (ex. "Toulouse" or "Toulouse, Paris").
 function get_list_places(element) {
     let L = [];
+    if(element==undefined) {
+        return L;
+    }
     if(is_type_string(element)) {
-        let element_split = element.split(',')
-        for(let e of element_split){
-            L.push({'City':e});
+        for(let e of element.split(',')){
+            L.push({'City':e.trim()});
         }
     }
-    else if( is_type_array(element) ) {
-        L = element;
+    else if(is_type_array(element)) {
+        for(let e of element) {
+            L = L.concat(get_list_places(e));
+        }
     }
-    else { //Dictionnary 
-        L = get_list_places([element])
+    else { // dictionary
+        L.push(element);
     }
     return L;
 }
 
+// One entry per (country, city), France added when the country is omitted
 function get_list_places_exhaustive(element) {
     let L = [];
     for(let e of element){
-        if(is_type_string(e)) {
-            L.push({'Country': 'France', 'City': e});
+        // Special case of international
+        if(e['International']!=undefined) {
+            L.push(e);
+            continue;
         }
-        else { // dictionary
+        let D = {...e};
+        if(e['Country']==undefined) {
+            D['Country']='France';
+        }
 
-            // Special case of international
-            if(e['International']!=undefined) {
-                L.push(e);
+        if(is_type_array(e['Country'])) { // multiple countries
+            for(let country of e['Country']) {
+                L.push({...e, 'Country': country});
             }
-            else{
-                let D = {...e};
-                // Add France if no country
-                if(e['Country']==undefined) { 
-                    D['Country']='France';
-                }
-                
-                if(is_type_array(e['Country'])) { // multiple countries
-                    for(let country of e['Country']) {
-                        let D = {...e};
-                        D['Country'] = country;
-                        L.push(D);
-                    }
-                }
-                else if(is_type_array(e['City'])) { // multiple cities
-                    for(let city of e['City']) {
-                        let D = {...e};
-                        if(e['Country']==undefined) { // in case France is omitted
-                            D['Country']='France';
-                        }
-                        D['City'] = city;
-                        L.push(D);
-                    }
-                }
-                else { //only one city
-                    L.push(D);
-                }
+        }
+        else if(is_type_array(e['City'])) { // multiple cities
+            for(let city of e['City']) {
+                L.push({...D, 'City': city});
             }
+        }
+        else { //only one city
+            L.push(D);
         }
     }
     return L;
@@ -186,183 +231,335 @@ function get_list_places_exhaustive(element) {
 
 function export_places_to_txt(data) {
 
-    let txt = ''
+    let all_txt = [];
     for(let element of data){
-        let entry_txt = '';
-
-        let country_entry = element['Country'];
-        if(country_entry!=undefined) {
-            if(is_type_array(country_entry)){
-                entry_txt += country_entry.join(', ');
-            }
-            else {
-                entry_txt += country_entry;
-            }
+        if(element['International']==true) {
+            all_txt.push('International');
+            continue;
         }
 
-        let state_entry = element['State'];
+        let entry_txt = '';
+        const country_entry = element['Country'];
+        if(country_entry!=undefined) {
+            entry_txt += is_type_array(country_entry) ? country_entry.join(', ') : country_entry;
+        }
+
+        const state_entry = element['State'];
         if(state_entry!=undefined) {
             entry_txt += '/'+state_entry;
         }
 
-        let city_entry = element['City'];
+        const city_entry = element['City'];
         if(city_entry!=undefined) {
             if(entry_txt!='') {
                 entry_txt += '/';
             }
             if(is_type_array(city_entry)) {
                 let city_txt = city_entry.join(', ');
-                if(country_entry!=undefined){
+                if(country_entry!=undefined && city_entry.length>1){
                     city_txt = '{'+city_txt+'}';
                 }
                 entry_txt += city_txt;
             }
-            else if(is_type_string(city_entry)) {
+            else {
                 entry_txt += city_entry;
             }
         }
 
-        let exact_entry = element['Exact'];
+        const exact_entry = element['Exact'];
         if(exact_entry!=undefined) {
             entry_txt += ' ('+exact_entry+')';
         }
 
-        let international_entry = element['International'];
-        if(international_entry==true) {
-            entry_txt = 'International';
+        if(entry_txt!='') {
+            all_txt.push(entry_txt);
         }
-
-        if(txt!='' && entry_txt!=''){
-            txt +=', ';
-        }
-        txt += entry_txt;
     }
 
-    return txt;
+    return all_txt.join(', ');
 }
 
 
-function display_company_entry(entry) {
+
+// Places for a card, readable at a glance: French cities first, then "City (Country)".
+// Ex. "Paris, Angoulême, Montréal (Canada), Nanjing (Chine)"
+function places_for_card(entry) {
+    const places = get_list_places_exhaustive(get_list_places(entry['Place']));
+    const french = [], abroad = [];
+    let international = false;
+    for(const p of places) {
+        if(p['International']!=undefined) { international = true; continue; }
+        const city = get_string(p['City'] || p['State'] || '');
+        if(p['Country']=='France') {
+            if(city!='' && !french.includes(city)) french.push(city);
+        }
+        else {
+            const txt = city!='' ? `${city} (${p['Country']})` : p['Country'];
+            if(!abroad.includes(txt)) abroad.push(txt);
+        }
+    }
+    const all = french.concat(abroad);
+    if(international) all.push('International');
+    return all.join(', ');
+}
+
+// ---------------------------------------------------------------------------
+// Display of one company
+// ---------------------------------------------------------------------------
+
+function highlight_badge(entry) {
+    const highlight = get_string(entry['Highlight']);
+    if(highlight=='') {
+        return '';
+    }
+    for(const badge of HIGHLIGHT_BADGES) {
+        if(badge['match'](highlight)) {
+            return ` <span class="highlight-badge">${badge['text']}</span>`;
+        }
+    }
+    return '';
+}
+
+// Theme tags of a card: buttons that filter the listing on this theme
+function display_tags(element, domain) {
+    if(element==undefined || element.length==0) {
+        return '';
+    }
+    const L = is_type_array(element) ? element : String(element).split(',');
+    return L.map((x) => {
+        const keyword = String(x).trim();
+        const active = Global['selected'][domain].has(keyword) ? ' is-active' : '';
+        return `<button type="button" class="tag ${domain}-tag${active}" data-domain="${domain}" data-keyword="${esc(keyword)}" title="Afficher uniquement : ${esc(keyword)}">${keyword}</button>`;
+    }).join('<span class="tag-sep">, </span>');
+}
+
+function display_div(txt, className, label='') {
+    if(txt==''){
+        return '';
+    }
+    const pre = label=='' ? '' : `<strong class="field-label">${label}</strong><span class="field-sep"> : </span>`;
+    return `<div class="${className}">${pre}${txt}</div>\n`;
+}
+
+// Unique id: only the first card of a company gets it (a company may appear in several places)
+function company_id_attribute(name) {
+    const id = name.replace(/[^A-Z0-9]/ig, "_");
+    if(Global['rendered-ids'].has(id)) {
+        return '';
+    }
+    Global['rendered-ids'].add(id);
+    return ` id="${id}"`;
+}
+
+function display_company_entry(entry, level) {
 
     const name = entry['Name'];
-    let id = name.replace(/[^A-Z0-9]/ig, "_");
+    const id_attribute = company_id_attribute(name);
     const url = entry['url'];
+    const badge = highlight_badge(entry);
+    const title = `<h${level} class="company-name"><a target="_blank" href="${url}">${name}${NEW_TAB}</a>${badge}</h${level}>`;
+
+    const jobs = get_string(entry['Jobs']);
+    const jobs_txt = jobs=='' ? '' :
+        `<div class="jobs"><a class="jobs-link" target="_blank" href="${jobs}">Offres d'emploi<span class="visually-hidden"> chez ${esc(name)} (nouvel onglet)</span></a></div>\n`;
+    const place_txt = places_for_card(entry);
+    const has_jobs = jobs=='' ? '' : ' has-jobs';
+    // Place under the name, with a hidden label for screen readers (the pin icon is decorative)
+    const place_div = place_txt=='' ? '' :
+        `<div class="place"><span class="visually-hidden">Localisation : </span>${place_txt}</div>\n`;
+
     if(UX['details'].checked==false) {
-        return `
-        <div id="${id}">\n
-        <h3><a target="_blank" href="${url}">${name}</a></h3>\n
-        </div>
-        `;
+        let txt = `<li${id_attribute} class="company company-compact${has_jobs}">${title}`;
+        txt += place_div;
+        txt += jobs_txt;
+        return txt + '</li>\n';
     }
 
-    let name_long = get_string(entry['Name-long']);
-    if(name_long!=''){
-        name_long = `(${name_long})`;
-    }
-    let description = get_string(entry['Description']);
-    let info = get_string(entry['Info']);
+    const name_long = get_string(entry['Name-long']);
+    const description = get_string(entry['Description']);
+    const info = get_string(entry['Info']);
     const keywords = get_string(entry['Keywords'])
-    const scientific_domain = get_string(entry['Scientific-domain']);
-    const application_domain = get_string(entry['Application-domain']);
     const product = get_string(entry['Product']);
-    const jobs = get_string(entry['Jobs']);
     const employees = get_string(entry['Employees']);
     let number_txt='';
     if(employees!='' && Number(employees)>100) {
         number_txt = String(Number(employees).toLocaleString('fr'));
     }
-    const place_struct = get_list_places(entry['Place']);
-    const place_txt = export_places_to_txt(place_struct);
-    //const place_split = get_list_places_exhaustive(place_struct);
-    
-
-    let txt = ''
-
-    txt += `<div id="${id}">\n`;
-    txt += `<h3><a target="_blank" href="${url}">${name}</a></h3> ${name_long} \n`;
-    txt += `<div class="content">\n`;
-    txt += display_div(description, 'description');
-    txt += display_div(keywords, 'keywords', '<strong>Mot clés</strong>: ')
-    txt += display_div(info, 'info', '<strong>Remarque</strong>: ');
-    txt += display_div(product, 'products', '<strong>Produits</strong>: ');
-    txt += display_div(place_txt, 'place', '<strong>Localisation</strong>: ');
-
-    txt += display_div(number_txt, 'employees', "<strong>Nombre d'employés</strong>: ");
-  
-    txt += display_div(scientific_domain, 'scientific-domain', '<strong>Domaine scientifique</strong>: ');
-    txt += display_div(application_domain, 'application-domain', "<strong>Domaine d'application</strong>: ");
-    if(jobs!=''){
-        txt += `[<a target="_blank" href="${jobs}">Jobs</a>]\n`
+    // Left column: identity of the company (who, where, size, jobs)
+    let txt = `<li${id_attribute} class="company${has_jobs}">\n<div class="company-id">\n${title}`;
+    if(name_long!='') {
+        txt += `<div class="name-long">${name_long}</div>`;
     }
-
-
-    txt += `</div>\n`; // end Content
-    txt += '</div>\n'; //end ID
+    txt += place_div;
+    if(number_txt!='') {
+        txt += `<div class="employees">${number_txt} employés</div>\n`;
+    }
+    txt += jobs_txt;
+    txt += '</div>\n'; // end company-id
+    // Right column: what the company does
+    txt += '<div class="content">\n';
+    txt += display_div(description, 'description');
+    txt += display_div(keywords, 'keywords', 'Mots-clés')
+    txt += display_div(info, 'info', 'Remarque');
+    txt += display_div(product, 'products', 'Produits');
+    const tags = display_div(display_tags(entry['Scientific-domain'], 'scientific'), 'scientific-domain', 'Domaine scientifique')
+        + display_div(display_tags(entry['Application-domain'], 'application'), 'application-domain', "Domaine d'application");
+    if(tags!='') {
+        txt += `<div class="tags">${tags}</div>\n`;
+    }
+    txt += '</div>\n'; // end content
+    txt += '</li>\n';
 
     return txt;
 }
 
 
-function display_company(data, sorted_type) {
-    let HTML_txt = '';
+
+// ---------------------------------------------------------------------------
+// Display of the listing
+// ---------------------------------------------------------------------------
+
+function plural_companies(N) {
+    return N>1 ? `${N} entreprises` : `${N} entreprise`;
+}
+
+function any_filter_active() {
+    return Global['selected']['scientific'].size>0 || Global['selected']['application'].size>0
+        || UX['france-only'].checked || UX['jobs-only'].checked || UX['search'].value.trim()!='';
+}
+
+function display_summary(N, N_jobs) {
+    const N_total = company_data['Listing'].length;
+    let txt = '';
+    if(any_filter_active()) {
+        txt = `<strong>${N>1 ? N+' entreprises affichées' : N+' entreprise affichée'}</strong> sur ${N_total}`;
+    }
+    else {
+        txt = `<strong>${N_total} entreprises répertoriées</strong>`;
+    }
+    if(N>0 && !UX['jobs-only'].checked) {
+        txt += `, <span class="summary-jobs">dont ${N_jobs} avec offres d'emploi</span>`;
+    }
+    // Filter panel: the close button tells how many companies will be shown
+    UX['filter-close'].textContent = N>1 ? `Voir les ${N} entreprises` : (N==1 ? "Voir l'entreprise" : 'Fermer');
+    const updated = company_data['Updated'];
+    if(updated!=undefined) {
+        const date = new Date(updated+'T12:00:00');
+        txt += ` <span class="listing-updated">(mise à jour le ${date.toLocaleDateString('fr-FR', {day:'numeric', month:'long', year:'numeric'})})</span>`;
+    }
+    summary_element.innerHTML = txt;
+}
+
+function display_no_result() {
+    return `<div class="no-result">
+    <p>Aucune entreprise ne correspond à la recherche et aux filtres sélectionnés.</p>
+    <button type="button" class="reset-all">Tout réinitialiser</button>
+    </div>\n`;
+}
+
+function display_list(entries, level) {
+    const compact = UX['details'].checked ? '' : ' compact';
+    let txt = `<ul class="company-list${compact}" role="list">\n`;
+    for(const entry of entries) {
+        txt += display_company_entry(entry, level);
+    }
+    return txt + '</ul>\n';
+}
+
+// Id of a place heading, used by the index of the place view
+function place_id(prefix, name) {
+    return prefix + '-' + search_str(name).replace(/[^a-z0-9]+/g, '-');
+}
+
+function place_count(N) {
+    return `<span class="place-count">${plural_companies(N)}</span>`;
+}
+
+function display_city(city, entries) {
+    let txt = `<h3 class="title-place title-city" id="${place_id('ville', city)}" tabindex="-1">${city} ${place_count(entries.length)}</h3>\n`;
+    txt += '<div class="container-place-city">\n' + display_list(entries, 4) + '</div>\n';
+    return txt;
+}
+
+// Index of the place view: one link per French city, then per country
+function display_place_index(cities, french_entries, countries, data) {
+    const link = (id, name, N) => `<a class="place-link" href="#${id}">${name}<span class="place-link-count"><span class="visually-hidden"> : </span>${N}</span></a>`;
+    // Folded by default on small screens (long list of cities)
+    const open = window.matchMedia('(min-width: 761px)').matches ? ' open' : '';
+    const N_places = cities.length + countries.length;
+    let txt = `<nav class="place-index" aria-label="Aller à une localité"><details${open}>`
+        + `<summary>Aller à une localité <span class="place-index-total">${N_places} lieux</span></summary>\n`;
+    if(cities.length>0) {
+        txt += '<div class="place-index-row"><span class="place-index-label">France</span><div class="place-index-links">';
+        txt += cities.map((c) => link(place_id('ville', c), c, french_entries[c].length)).join('');
+        txt += '</div></div>\n';
+    }
+    if(countries.length>0) {
+        txt += '<div class="place-index-row"><span class="place-index-label">Autres pays</span><div class="place-index-links">';
+        txt += countries.map((c) => link(place_id('pays', c), c, data[c].length)).join('');
+        txt += '</div></div>\n';
+    }
+    return txt + '</details></nav>\n';
+}
+
+function display_company(data, N_displayed) {
+    if(N_displayed==0) {
+        return display_no_result();
+    }
 
     if(UX['sorting']['alphabetical'].checked) {
-        let N = data.length;
-        HTML_txt += `<br><strong>${N} Entreprises repertoriées</strong><br>`;
-        for(let k=0; k<N; ++k){
-            let entry = data[k];
-            HTML_txt += display_company_entry(entry);
+        return display_list(data, 2);
+    }
+
+    let HTML_txt = '';
+    const all_countries = Object.keys(data).sort(compare_fr);
+    const other_countries = all_countries.filter((c) => c!='France');
+
+    // Display France first, sorted by city, Paris first
+    const french_entries = data['France'];
+    let cities = [];
+    if(french_entries != undefined) {
+        cities = Object.keys(french_entries).sort(compare_fr).filter((c) => c!='Paris');
+        if(french_entries['Paris']!=undefined) {
+            cities.unshift('Paris');
         }
     }
-    else if(UX['sorting']['place'].checked) {
-        const all_countries = Object.keys(data).sort();
+    HTML_txt += display_place_index(cities, french_entries, other_countries, data);
 
-        // Display France first
-        const french_entries = data['France'];
-        if(french_entries != undefined) {
-            HTML_txt += `<h2 class="title-place">France</h2>\n`
-            HTML_txt += '<div class="container-place">\n'
-            const all_city = Object.keys(french_entries).sort();
-
-            // Display Paris first
-            const N_companies = data['France']['Paris'].length;
-            HTML_txt += `<h2 class="title-place title-city">Paris (${N_companies} entreprises) </h2>\n`
-            HTML_txt += '<div class="container-place-city">\n'
-            for(let entry_city of data['France']['Paris']) {
-                HTML_txt += display_company_entry(entry_city);
-            }
-            HTML_txt += '</div>\n'
-
-            for(let city of all_city) {
-                if(city!='Paris'){
-                    const N_companies = data['France'][city].length;
-                    HTML_txt += `<h2 class="title-place title-city">${city} (${N_companies} entreprises)</h2>\n`
-                    HTML_txt += '<div class="container-place-city">\n'
-                    for(let entry_city of data['France'][city]) {
-                        HTML_txt += display_company_entry(entry_city);
-                    }
-                    HTML_txt += '</div>\n'
-                }
-            }
-            HTML_txt += '</div>\n'
+    if(french_entries != undefined) {
+        HTML_txt += `<h2 class="title-place" id="pays-france" tabindex="-1">France</h2>\n`
+        HTML_txt += '<div class="container-place">\n'
+        for(let city of cities) {
+            HTML_txt += display_city(city, french_entries[city]);
         }
+        HTML_txt += '</div>\n'
+    }
 
-        for(const country of all_countries) {
-            if(country!='France') {
-                const N_companies = data[country].length;
-                HTML_txt += `<h2 class="title-place">${country} (${N_companies} entreprises)</h2>\n`
-                HTML_txt += '<div class="container-place">\n'
-                for(let entry_country of data[country]) {
-                    HTML_txt += display_company_entry(entry_country);
-                }
-                HTML_txt += '</div>\n'
-            }
-        }
-        
+    for(const country of other_countries) {
+        HTML_txt += `<h2 class="title-place" id="${place_id('pays', country)}" tabindex="-1">${country} ${place_count(data[country].length)}</h2>\n`
+        HTML_txt += '<div class="container-place">\n' + display_list(data[country], 3) + '</div>\n'
     }
 
     return HTML_txt;
+}
 
+// Jump to a place heading (inside the AFIG iframe, the parent page has to scroll)
+function jump_to_place(link) {
+    jump_to_target(document.getElementById(link.getAttribute('href').slice(1)));
+}
+
+function jump_to_target(target) {
+    if(!target) {
+        return;
+    }
+    if(document.documentElement.classList.contains('embedded') && window.parentIFrame!=undefined) {
+        const top = target.getBoundingClientRect().top + window.scrollY;
+        window.parentIFrame.scrollToOffset(0, Math.max(0, top - 16));
+    }
+    else {
+        target.scrollIntoView({block: 'start'});
+    }
+    target.focus({preventScroll: true});
 }
 
 function sort_by_place(data) {
@@ -373,341 +570,704 @@ function sort_by_place(data) {
         for(const place of place_entry) {
             let country = place['Country'];
 
+            if(UX['france-only'].checked && country!='France') {
+                continue; // only French places are displayed in this mode
+            }
+
             if(country==undefined) {
                 if(place['International']){ // Case of 'International:true' -> used like a country
-                    if(sorted_data['International']==undefined){
-                        sorted_data['International'] = [];
-                    }
-                    sorted_data['International'].push(entry);
+                    country = 'International';
                 }
                 else { // Should not happen
                     console.log("Error sorting place for entry ", entry, place);
+                    continue;
                 }
             }
-            else{
-                if(sorted_data[country]==undefined) { // create new entry for this country
-                    if(country=='France') {
-                        sorted_data['France'] = {}; // France is also sorted by city
-                    }
-                    else {
-                        sorted_data[country] = [];
-                    }
-                }                
 
-                if(country=='France') { // then also sort by city
-                    let city = place['City'];
-                    if(city==undefined) {
-                        console.log("Error reading city for entry", entry);
-                    }
-                    while(city[0]==' '){
-                        city = city.substring(1,city.length);
-                    }
-                    if(sorted_data['France'][city]==undefined) {
-                        sorted_data['France'][city] = [];
-                    }
+            if(country=='France') { // France is also sorted by city
+                const city = String(place['City'] || '').trim();
+                if(city=='') {
+                    console.log("Error reading city for entry", entry);
+                    continue;
+                }
+                sorted_data['France'] = sorted_data['France'] || {};
+                sorted_data['France'][city] = sorted_data['France'][city] || [];
+                if(!sorted_data['France'][city].includes(entry)) {
                     sorted_data['France'][city].push(entry);
                 }
-                else {
-                    // check no duplicate before adding
-                    const N = sorted_data[country].length;
-                    if(N==0) {
-                        sorted_data[country].push(entry);
-                    }
-                    else {
-                        const previous_name = sorted_data[country][N-1]['Name'];
-                        const current_name = entry['Name'];
-                        if(previous_name!==current_name) {
-                            sorted_data[country].push(entry);
-                        }
-                    }
+            }
+            else {
+                sorted_data[country] = sorted_data[country] || [];
+                if(!sorted_data[country].includes(entry)) { // no duplicate in a country
+                    sorted_data[country].push(entry);
                 }
             }
         }
     }
 
     return sorted_data;
-    
 }
 
 
 
-function compute_active_entry(domain, domain_label, data) {
+// ---------------------------------------------------------------------------
+// Filtering
+// ---------------------------------------------------------------------------
 
-    const N = data.length;
-    let active_entry = [];
-    for(let k=0; k<N; k++){
-        active_entry.push(0);
+function match_domain(entry, domain) {
+    const selected = Global['selected'][domain];
+    if(selected.size==0) {
+        return true;
     }
-    for(let k=0; k<domain.length; k++) {
-        if(domain[k].checked==true) {
-            let domain_target = domain[k].value;
+    const entry_keyword = entry[DOMAIN_KEY[domain]];
+    if(entry_keyword==undefined || entry_keyword[0]==='Arbitraire') { // does not filter along non existing criteria
+        return true;
+    }
+    if(Global['mode'][domain]=='and') {
+        return [...selected].every((x) => entry_keyword.includes(x));
+    }
+    return entry_keyword.some((x) => selected.has(x));
+}
 
-            for(let k=0; k<N; k++) {
-                if(active_entry[k]==false) {
-                    const candidate = data[k];
-                    const candidate_domain = candidate[domain_label];
+// All the filters, except the theme filter of one domain (skip_domain='' : all the filters)
+function match_filters(k, search_words, skip_domain) {
+    const entry = company_data['Listing'][k];
+    for(const domain of ['scientific', 'application']) {
+        if(domain!=skip_domain && !match_domain(entry, domain)) return false;
+    }
+    if(UX['france-only'].checked && !Global['in-france'][k]) return false;
+    if(UX['jobs-only'].checked && !Global['has-jobs'][k]) return false;
+    return search_words.every((w) => Global['search-text'][k].includes(w));
+}
 
-                    if(candidate_domain!=undefined){
-                        const find_domain = candidate_domain.some((x) => neutral_str(x)==neutral_str(domain_target) );
-                        if(find_domain==true){
-                            active_entry[k] = true;
-                        }
-                    }
-                    else { // does not filter along non existing criteria
-                        active_entry[k] = true;
-                    }
-                }
+// Counts of the filter panel: number of companies shown if this theme is checked, given the other filters
+function update_keyword_counts(search_words) {
+    const listing = company_data['Listing'];
+    for(const domain of ['scientific', 'application']) {
+        const base = [];
+        for(let k=0; k<listing.length; k++) {
+            if(match_filters(k, search_words, domain)) base.push(listing[k]);
+        }
+        const selected = Global['selected'][domain];
+        for(const input of UX['filter-options'][domain].querySelectorAll('input')) {
+            const keyword = input.value;
+            let N = 0;
+            for(const entry of base) {
+                const kw = entry[DOMAIN_KEY[domain]] || [];
+                if(!kw.includes(keyword)) continue;
+                if(Global['mode'][domain]=='and' && ![...selected].every((x) => kw.includes(x))) continue;
+                N++;
             }
+            const option = input.closest('.filter-option');
+            option.querySelector('.keyword-count').textContent = `(${N})`;
+            option.classList.toggle('is-empty', N==0 && !input.checked);
         }
-    }
-
-    return active_entry;
-}
-
-function filter_active_entry_keyword(data, keyword_label, active_keywords, active_entry) {
-
-    const N = company_data['Listing'].length;
-    for(let k=0; k<N; k++) {
-        const entry = data[k];
-        const entry_keyword = entry[keyword_label];
-
-        if(active_entry[k]==1 && entry_keyword[0]!=='Arbitraire') { // Arbitraire is considered as an accept
-            const match = entry_keyword.some( (x) => active_keywords.has(x) );
-            if(match===false) {
-                active_entry[k] = 0;
-            }
-        }
-
     }
 }
 
-function update_display(event) {
+function update_display() {
 
-      
-    const N = company_data['Listing'].length;
-    // set all active entry to 1
-    for(let k=0; k<N; k++) {
-        Global['active-entry'][k] = 1;
+    if(company_data==undefined) { // data not loaded yet
+        return;
     }
+    const listing = company_data['Listing'];
+    const search_words = search_str(UX['search'].value).split(/\s+/).filter((w) => w!='');
+    let data_to_display = [];
+    for(let k=0; k<listing.length; k++) {
+        if(match_filters(k, search_words, '')) data_to_display.push(listing[k]);
+    }
+    const N_displayed = data_to_display.length;
+    const N_jobs = data_to_display.filter((e) => get_string(e['Jobs'])!='').length;
 
-    // Create a set with all active keywords to speed-up the lookup
-    Global["active-keyword-set"]["scientific"].clear();
-    Global["active-keyword-set"]["application"].clear();
-    for(let element of UX['filter-keyword-scientific-domain']) {
-        if(element.checked===true) {
-            Global["active-keyword-set"]["scientific"].add(element.value);
+    Global['rendered-ids'] = new Set();
+    display_summary(N_displayed, N_jobs);
+    const map_view = UX['sorting']['map'].checked;
+    document.documentElement.classList.toggle('view-map', map_view);
+    map_element.hidden = !map_view;
+    if(map_view) {
+        listing_element.innerHTML = N_displayed==0 ? display_no_result() : '';
+        display_map(data_to_display);
+    }
+    else {
+        if(UX['sorting']['place'].checked){
+            data_to_display = sort_by_place(data_to_display);
         }
+        listing_element.innerHTML = display_company(data_to_display, N_displayed);
     }
-    for(let element of UX['filter-keyword-application-domain']) {
-        if(element.checked===true) {
-            Global["active-keyword-set"]["application"].add(element.value);
-        }
-    }
-    
-
-
-    filter_active_entry_keyword(company_data['Listing'], 'Scientific-domain', Global['active-keyword-set']['scientific'], Global['active-entry']);
-    filter_active_entry_keyword(company_data['Listing'], 'Application-domain', Global['active-keyword-set']['application'], Global['active-entry']);
-
-
-
-
-    // filter data
-    let data_to_display = []
-    for(let k=0; k<N; k++) {
-        if(Global['active-entry'][k]) {
-            data_to_display.push(company_data['Listing'][k]);
-        }
-    }
-
-    if(UX['sorting']['place'].checked){
-        data_to_display = sort_by_place(data_to_display);
-    }
-
-    
-
-    listing_element.innerHTML = display_company(data_to_display, UX);
-   
-
+    update_filter_state();
+    update_keyword_counts(search_words);
+    update_shortcuts();
 }
 
+// Theme shortcuts above the listing (one tap): toggle a keyword of the filter
+const SHORTCUTS = [
+    {'text': 'Jeu vidéo', 'domain': 'application', 'keyword': 'Jeu Vidéo'},
+    {'text': 'Animation / VFX', 'domain': 'application', 'keyword': "Cinéma/Films d'Animation/VFX"},
+    {'text': 'Temps réel / moteurs 3D', 'domain': 'scientific', 'keyword': 'Rendu temps réel/Moteurs 3D'},
+    {'text': 'Vision', 'domain': 'scientific', 'keyword': 'Vision'},
+    {'text': 'VR / AR', 'domain': 'scientific', 'keyword': 'VR/AR'},
+    {'text': 'Simulation', 'domain': 'scientific', 'keyword': 'Simulation'},
+    {'text': 'IA générative', 'domain': 'scientific', 'keyword': 'IA générative (image/3D)'},
+];
+const shortcuts_element = document.querySelector('#shortcuts');
 
-
-
-function build_sorting(container) {
-    const sorting_input_element = document.createElement('div');
-    sorting_input_element.classList.add('sorting_input');
-
-    sorting_input_element.innerHTML = `
-    <input type="radio" id="sort-alphabetical" name="sort" value="Alphabetical" checked>
-    <label for="sort-alphabetical">Alphabétique</label>
-    <input type="radio" id="sort-place" name="sort" value="Localization">
-    <label for="sort-place">Localité</label>
-    `;
-
-    container.appendChild(sorting_input_element);
-    UX['sorting']['alphabetical'] = document.querySelector('#sort-alphabetical');
-    UX['sorting']['place']= document.querySelector('#sort-place');
-    container.addEventListener('change', update_display);
+function build_shortcuts() {
+    let txt = '<span class="shortcuts-label" id="shortcuts-label">Thèmes fréquents :</span>';
+    SHORTCUTS.forEach((s, k) => {
+        txt += `<button type="button" class="shortcut" data-index="${k}" aria-pressed="false">${s['text']}</button>`;
+    });
+    shortcuts_element.innerHTML = txt;
 }
 
-function build_detail_button(container) {
-    const button_detail = document.createElement('div');
-    button_detail.innerHTML = `
-    <input type="checkbox" id="display-details" name="detail" checked>
-    <label for="display-details">Détails</label>
-    `;
-    container.appendChild(button_detail);
-    UX['details'] = document.querySelector('#display-details');
-    container.addEventListener('change', update_display);
-
+function update_shortcuts() {
+    for(const button of shortcuts_element.querySelectorAll('.shortcut')) {
+        const s = SHORTCUTS[button.dataset.index];
+        button.setAttribute('aria-pressed', Global['selected'][s['domain']].has(s['keyword']) ? 'true' : 'false');
+    }
 }
 
-function build_filter_keyword(container) {
+shortcuts_element.addEventListener('click', (event) => {
+    const button = event.target.closest('.shortcut');
+    if(!button) return;
+    const s = SHORTCUTS[button.dataset.index];
+    const selected = Global['selected'][s['domain']];
+    if(selected.has(s['keyword'])) selected.delete(s['keyword']);
+    else selected.add(s['keyword']);
+    update_display();
+});
 
-    const filter_keywords_dropdown_element = document.createElement('div');
-    filter_keywords_dropdown_element.innerHTML = `
-    <button type="button" class="button-basic dropdown-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-    Filtre mot clés
-    </button>
-    <div class="dropdown-menu filter-keyword-menu">
-    <div class="container-checkbox container-checkbox-scientific-domain">
-    <strong>Domaine Scientifique</strong>
-    <div class="check-all-container">Tout
-        <button type="button" class="button-basic" id="button-check-all-scientific">Cocher</button>
-        <button type="button" class="button-basic" id="button-uncheck-all-scientific">Décocher</button>
-    </div>
-    </div>
-    <div class="container-checkbox container-checkbox-application-domain">
-    <strong>Domaine d'Application</strong>
-    <div class="check-all-container">Tout
-        <button type="button" class="button-basic" id="button-check-all-application">Cocher</button>
-        <button type="button" class="button-basic" id="button-uncheck-all-application">Décocher</button>
-    </div>
-    </div>
-    </div>
-    `
-    container.appendChild(filter_keywords_dropdown_element);
-    UX['filter-keyword-container']['scientific-domain'] = selection_element.querySelector('.container-checkbox-scientific-domain');
-    UX['filter-keyword-container']['application-domain'] = selection_element.querySelector('.container-checkbox-application-domain');
+// Synchronize the checkboxes, the counter of the filter button and the active filter pills
+function update_filter_state() {
+    let N_selected = 0;
+    for(const domain of ['scientific', 'application']) {
+        const selected = Global['selected'][domain];
+        N_selected += selected.size;
+        for(const input of UX['filter-options'][domain].querySelectorAll('input')) {
+            input.checked = selected.has(input.value);
+        }
+        document.querySelector(`#mode-${domain}-${Global['mode'][domain]}`).checked = true;
+    }
+    UX['filter-count'].hidden = (N_selected==0);
+    UX['filter-count'].innerHTML = N_selected>0 ? `${N_selected}<span class="visually-hidden"> sélectionnés</span>` : '';
 
-    UX['filter-keyword-container']['check']['scientific'] = selection_element.querySelector('#button-check-all-scientific');
-    UX['filter-keyword-container']['uncheck']['scientific'] = selection_element.querySelector('#button-uncheck-all-scientific');
-    UX['filter-keyword-container']['check']['application'] = selection_element.querySelector('#button-check-all-application');
-    UX['filter-keyword-container']['uncheck']['application'] = selection_element.querySelector('#button-uncheck-all-application');
-    UX['filter-keyword-container']['check']['scientific'].addEventListener('click',change_filter_check);
-    UX['filter-keyword-container']['uncheck']['scientific'].addEventListener('click',change_filter_check);
-    UX['filter-keyword-container']['check']['application'].addEventListener('click',change_filter_check);
-    UX['filter-keyword-container']['uncheck']['application'].addEventListener('click',change_filter_check);
-    
+    // Pills of the active filters
+    let pills = [];
+    const search_value = UX['search'].value.trim();
+    if(search_value!='') {
+        pills.push({'type':'search', 'text':`Recherche : « ${esc(search_value)} »`});
+    }
+    for(const domain of ['scientific', 'application']) {
+        let first = true;
+        for(const keyword of Global['selected'][domain]) {
+            const join = first ? '' : (Global['mode'][domain]=='and' ? 'et' : 'ou');
+            pills.push({'type':domain, 'keyword':keyword, 'text':esc(keyword), 'join':join});
+            first = false;
+        }
+    }
+    if(UX['france-only'].checked) {
+        pills.push({'type':'france-only', 'text':'France uniquement'});
+    }
+    if(UX['jobs-only'].checked) {
+        pills.push({'type':'jobs-only', 'text':"Avec offres d'emploi"});
+    }
+
+    if(pills.length==0) {
+        UX['active-filters'].hidden = true;
+        UX['active-filters'].innerHTML = '';
+        return;
+    }
+    let txt = '<span class="active-filters-label">Filtres actifs :</span> ';
+    for(const pill of pills) {
+        if(pill['join']) {
+            txt += `<span class="pill-join">${pill['join']}</span> `;
+        }
+        const keyword_attribute = pill['keyword']!=undefined ? ` data-keyword="${esc(pill['keyword'])}"` : '';
+        txt += `<button type="button" class="pill pill-${pill['type']}" data-type="${pill['type']}"${keyword_attribute}>${pill['text']}<span class="pill-remove" aria-hidden="true">&times;</span><span class="visually-hidden"> (retirer ce filtre)</span></button> `;
+    }
+    txt += '<button type="button" class="reset-all">Tout réinitialiser</button>';
+    UX['active-filters'].innerHTML = txt;
+    UX['active-filters'].hidden = false;
 }
 
-function change_filter_check(event) {
-
-    const id = event.currentTarget.id;
-    if(id==='button-check-all-scientific') {
-        for(let k=0; k<UX['filter-keyword-scientific-domain'].length; k++){
-            UX['filter-keyword-scientific-domain'][k].checked=true;
-        }
+function remove_filter(pill) {
+    const type = pill.dataset.type;
+    if(type=='search') {
+        UX['search'].value = '';
     }
-    if(id==='button-uncheck-all-scientific') {
-        for(let k=0; k<UX['filter-keyword-scientific-domain'].length; k++){
-            UX['filter-keyword-scientific-domain'][k].checked=false;
-        }
+    else if(type=='france-only' || type=='jobs-only') {
+        UX[type].checked = false;
     }
-    if(id==='button-check-all-application') {
-        for(let k=0; k<UX['filter-keyword-application-domain'].length; k++){
-            UX['filter-keyword-application-domain'][k].checked=true;
-        }
-    }
-    if(id==='button-uncheck-all-application') {
-        for(let k=0; k<UX['filter-keyword-application-domain'].length; k++){
-            UX['filter-keyword-application-domain'][k].checked=false;
-        }
+    else {
+        Global['selected'][type].delete(pill.dataset.keyword);
     }
     update_display();
-
-
 }
 
-function build_keywords(data, label){
+function reset_all_filters() {
+    UX['search'].value = '';
+    UX['france-only'].checked = false;
+    UX['jobs-only'].checked = false;
+    Global['selected']['scientific'].clear();
+    Global['selected']['application'].clear();
+    update_display();
+}
 
-    const container = document.createElement('div');
-    container.classList.add('selection-'+label);
+// Click on a theme tag of a card: show only this theme
+function filter_on_tag(tag) {
+    const domain = tag.dataset.domain;
+    Global['selected'][domain] = new Set([tag.dataset.keyword]);
+    update_display();
+    scroll_to_top();
+    summary_element.focus({preventScroll: true});
+}
+
+function scroll_to_top() {
+    if(document.documentElement.classList.contains('embedded') && window.parentIFrame!=undefined) {
+        window.parentIFrame.scrollToOffset(0, 0); // scroll the AFIG page to the top of the iframe
+    }
+    else {
+        window.scrollTo({top: 0});
+    }
+}
 
 
+
+// ---------------------------------------------------------------------------
+// Filter panel
+// ---------------------------------------------------------------------------
+
+function open_filter_panel(open) {
+    UX['filter-panel'].hidden = !open;
+    UX['filter-toggle'].setAttribute('aria-expanded', open ? 'true' : 'false');
+    if(open) {
+        const first = UX['filter-panel'].querySelector('input');
+        if(first) first.focus();
+    }
+}
+
+// Number of companies per keyword, displayed next to each filter
+function count_keywords(listing, domain_label) {
+    const count = {};
+    for(const entry of listing) {
+        for(const keyword of (entry[domain_label] || [])) {
+            count[keyword] = (count[keyword] || 0) + 1;
+        }
+    }
+    return count;
+}
+
+function build_keywords(data, domain, count){
+
+    let txt = '';
     for(let data_keyword of data){
-        
+
         let keyword = data_keyword;
         let explanation = undefined;
-        if(is_type_string(data_keyword)==false && is_type_array(Object.keys(data_keyword))) {
+        if(!is_type_string(data_keyword)) {
             keyword = Object.keys(data_keyword)[0];
             explanation = data_keyword[keyword];
         }
-        let id = keyword.replace(/[^A-Z0-9]/ig, "_");
+        const id = `filter-${domain}-${keyword.replace(/[^A-Z0-9]/ig, "_")}`;
+        const N_keyword = count[keyword] || 0;
+        const title = explanation!=undefined ? ` title="${esc(explanation)}"` : '';
+        const help = explanation!=undefined ? `<span class="visually-hidden" id="${id}-help">${esc(explanation)}</span>` : '';
+        const described = explanation!=undefined ? ` aria-describedby="${id}-help"` : '';
+        const mark = explanation!=undefined ? ' <img class="question-mark" alt="" aria-hidden="true">' : '';
 
-        let content_checkbox = undefined;
-        if(explanation!=undefined) {
-            content_checkbox = `<span title="${explanation}">${keyword}</span> <img for="display-${label}-${id}" title="${explanation}" class="question-mark">`;
-        }
-        else {
-            content_checkbox = `<span>${keyword}</span>`;
-        }
-    
-        const new_input = document.createElement('div');
-        new_input.classList.add(label+'-entry');
-        new_input.innerHTML = `
-        <input type="checkbox" class="keyword-checkbox-element" id="display-${label}-${id}" name="${label}" value="${keyword}" checked>
-        <label for="display-${label}-${id}"> ${content_checkbox} </label>
-        `;
-
-        container.appendChild(new_input);
-
-        UX['filter-keyword-container'][label].appendChild(new_input);
-
-        new_input.addEventListener('change', update_display);
-        UX['filter-keyword-'+label].push(new_input.querySelector('input'));
-
-
+        txt += `<div class="filter-option">
+        <input type="checkbox" id="${id}" value="${esc(keyword)}"${described}>
+        <label for="${id}"${title}>${keyword}${mark} <span class="keyword-count">(${N_keyword})</span></label>${help}
+        </div>\n`;
     }
-    selection_element.appendChild(container);
-
+    UX['filter-options'][domain].innerHTML = txt;
 }
 
-const ux_left = document.createElement('div');
-ux_left.classList.add('ux-left');
-const ux_right = document.createElement('div');
-ux_right.classList.add('ux-right');
-selection_element.appendChild(ux_left);
-selection_element.appendChild(ux_right);
 
-build_sorting(ux_left);
-build_detail_button(ux_left);
-build_filter_keyword(ux_right);
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+let search_timer = undefined;
+UX['search'].addEventListener('input', () => {
+    clearTimeout(search_timer);
+    search_timer = setTimeout(update_display, 150);
+});
+UX['search'].addEventListener('search', () => { // clear button of the search field
+    clearTimeout(search_timer);
+    update_display();
+});
+
+for(const element of [UX['sorting']['alphabetical'], UX['sorting']['place'], UX['sorting']['map'], UX['details'], UX['france-only'], UX['jobs-only']]) {
+    element.addEventListener('change', update_display);
+}
+
+UX['filter-toggle'].addEventListener('click', () => open_filter_panel(UX['filter-panel'].hidden));
+UX['filter-close'].addEventListener('click', () => {
+    open_filter_panel(false);
+    // On a phone the panel is long: bring the results back into view
+    if(UX['filter-toggle'].getBoundingClientRect().top < 0) scroll_to_top();
+    UX['filter-toggle'].focus({preventScroll: true});
+});
+UX['filter-panel'].addEventListener('keydown', (event) => {
+    if(event.key==='Escape') {
+        open_filter_panel(false);
+        UX['filter-toggle'].focus();
+    }
+});
+UX['filter-panel'].addEventListener('change', (event) => {
+    const input = event.target;
+    const domain = input.closest('.filter-group').dataset.domain;
+    if(input.type=='radio') { // combination mode of the domain
+        Global['mode'][domain] = input.value;
+        update_display();
+        return;
+    }
+    if(input.checked) {
+        Global['selected'][domain].add(input.value);
+    }
+    else {
+        Global['selected'][domain].delete(input.value);
+    }
+    update_display();
+});
+UX['filter-panel'].addEventListener('click', (event) => {
+    const button = event.target.closest('.filter-clear');
+    if(button) {
+        Global['selected'][button.dataset.domain].clear();
+        update_display();
+    }
+});
+
+UX['active-filters'].addEventListener('click', (event) => {
+    if(event.target.closest('.reset-all')) {
+        reset_all_filters();
+        UX['search'].focus();
+        return;
+    }
+    const pill = event.target.closest('.pill');
+    if(pill) {
+        remove_filter(pill);
+        // keep the keyboard focus in the pill area
+        const next = UX['active-filters'].querySelector('.pill, .reset-all');
+        (next || UX['search']).focus();
+    }
+});
+
+listing_element.addEventListener('click', (event) => {
+    const place_link = event.target.closest('.place-link');
+    if(place_link) {
+        event.preventDefault();
+        jump_to_place(place_link);
+        return;
+    }
+    const tag = event.target.closest('.tag[data-keyword]');
+    if(tag) {
+        filter_on_tag(tag);
+        return;
+    }
+    if(event.target.closest('.reset-all')) {
+        reset_all_filters();
+        UX['search'].focus();
+    }
+});
+
+
+
+// ---------------------------------------------------------------------------
+// Initialization once the data is loaded
+// ---------------------------------------------------------------------------
+
+// Text used by the search box for one company (themes included, with their explanation)
+function company_search_text(entry, explanations) {
+    const fields = ['Name', 'Name-long', 'Description', 'Info', 'Keywords', 'Product', 'Scientific-domain', 'Application-domain'];
+    let txt = fields.map((f) => strip_html(get_string(entry[f]))).join(' ');
+    txt += ' ' + export_places_to_txt(get_list_places(entry['Place']));
+    for(const domain of ['Scientific-domain', 'Application-domain']) {
+        for(const keyword of (entry[domain] || [])) {
+            txt += ' ' + (explanations[keyword] || '');
+        }
+    }
+    return search_str(txt);
+}
+
+function company_in_france(entry) {
+    const places = get_list_places_exhaustive(get_list_places(entry['Place']));
+    return places.some((p) => p['Country']=='France');
+}
+
+function keyword_explanations(data) {
+    const explanations = {};
+    for(const domain of ['Scientific-domain', 'Application-domain']) {
+        for(const k of data['Keywords'][domain]) {
+            if(!is_type_string(k)) {
+                const keyword = Object.keys(k)[0];
+                explanations[keyword] = k[keyword];
+            }
+        }
+    }
+    return explanations;
+}
 
 function answer(data) {
 
-    
-    // sort data by alphabetic order
-    data['Listing'].sort(function(a,b){let x=a['Name'].toLowerCase(); let y=b['Name'].toLowerCase(); return ((x < y) ? -1 : ((x > y) ? 1 : 0));});
+    // sort data by French alphabetic order
+    data['Listing'].sort((a,b) => compare_fr(a['Name'], b['Name']));
     company_data = data;
 
+    const explanations = keyword_explanations(data);
+    Global['search-text'] = data['Listing'].map((entry) => company_search_text(entry, explanations));
+    Global['in-france'] = data['Listing'].map(company_in_france);
+    Global['has-jobs'] = data['Listing'].map((entry) => get_string(entry['Jobs'])!='');
 
-    build_keywords(data['Keywords']['Scientific-domain'], 'scientific-domain', UX['filter-keyword-container']['scientific-domain']);
-    build_keywords(data['Keywords']['Application-domain'], 'application-domain', UX['filter-keyword-container']['application-domain']);
-
-
-    Global["active-keyword-set"]["scientific"] = new Set();
-    Global["active-keyword-set"]["application"] = new Set();
-
-    // Allocate the active entry to true for all of them
-    Global['active-entry'] = [];
-    const N_company = company_data['Listing'].length;
-    for(let k=0; k<N_company; k++){
-        Global['active-entry'].push(1);
+    for(const domain of ['scientific', 'application']) {
+        build_keywords(data['Keywords'][DOMAIN_KEY[domain]], domain, count_keywords(data['Listing'], DOMAIN_KEY[domain]));
     }
 
+    // Number of companies with a job page, shown on the toggle
+    document.querySelector('#jobs-count').textContent = Global['has-jobs'].filter((x) => x).length;
+    build_shortcuts();
 
     update_display();
-        
+}
+
+
+
+
+// ---------------------------------------------------------------------------
+// Map view: one marker per city (coordinates of places.yaml, exported in data.json 'Places')
+// Leaflet is loaded only when the map is opened for the first time.
+// ---------------------------------------------------------------------------
+
+const map_element = document.querySelector('#map-view');
+const MAP = {'map': null, 'cluster': null, 'loading': null, 'bounds': null, 'framed': false};
+const MAP_FRAMES = {
+    'world': [[-45, -130], [65, 150]],
+    'europe': [[36, -10], [60, 25]],
+    'france': [[42.2, -4.8], [51.1, 8.3]],
+};
+
+// Same rules as scripts/liblisting/places.py
+function split_names(value) {
+    if(value==undefined) return [];
+    if(is_type_string(value)) return value.split(',').map((v) => v.trim()).filter((v) => v!='');
+    if(is_type_array(value)) return value.flatMap(split_names);
+    return [String(value)];
+}
+
+function expand_places(place) {
+    if(place==undefined) return [];
+    if(is_type_string(place)) return split_names(place).map((c) => ({'Country': 'France', 'City': c, 'Coordinates': null, 'Address': ''}));
+    if(is_type_array(place)) return place.flatMap(expand_places);
+    const countries = split_names(place['Country']);
+    const cities = split_names(place['City']).length>0 ? split_names(place['City']) : split_names(place['State']);
+    if(cities.length==0 && place['International']===true && countries.length==0) return [];
+    const single = countries.length<=1 && cities.length<=1;
+    const precise = single ? (place['Coordinates'] || null) : null;
+    const address = single ? (place['Address'] || '') : '';
+    const out = [];
+    for(const country of (countries.length>0 ? countries : ['France'])) {
+        for(const city of (cities.length>0 ? cities : [''])) {
+            out.push({'Country': country, 'City': city, 'Coordinates': precise, 'Address': address});
+        }
+    }
+    return out;
+}
+
+function map_place_key(country, city) {
+    return city=='' ? country : `${country}/${city}`;
+}
+
+// Group the companies by location: key -> {label, coords, country_only, list_id, entries}
+function map_groups(entries) {
+    const places = company_data['Places'] || {};
+    const groups = new Map();
+    let N_unplaced = 0;
+    for(const entry of entries) {
+        const seen = new Set();
+        let placed = false;
+        for(const loc of expand_places(entry['Place'])) {
+            const key = map_place_key(loc['Country'], loc['City']);
+            const coords = loc['Coordinates'] || places[key];
+            if(coords==undefined) continue;
+            const group_key = loc['Coordinates'] ? `${key}@${coords}` : key;
+            placed = true;
+            if(seen.has(group_key)) continue;
+            seen.add(group_key);
+            if(!groups.has(group_key)) {
+                const country_only = loc['City']=='';
+                const label = country_only ? loc['Country'] : (loc['Country']=='France' ? loc['City'] : `${loc['City']} (${loc['Country']})`);
+                // heading of the place view to jump to: French city, or country
+                const list_id = (loc['Country']=='France' && !country_only) ? place_id('ville', loc['City']) : place_id('pays', loc['Country']);
+                groups.set(group_key, {'label': label, 'coords': coords, 'country_only': country_only, 'list_id': list_id, 'entries': [], 'addresses': []});
+            }
+            groups.get(group_key)['entries'].push(entry);
+            groups.get(group_key)['addresses'].push(loc['Address']);
+        }
+        if(!placed) N_unplaced++;
+    }
+    return [groups, N_unplaced];
+}
+
+function load_map_library() {
+    if(MAP['loading']==null) {
+        const add = (tag, attributes) => new Promise((resolve, reject) => {
+            const element = document.createElement(tag);
+            Object.assign(element, attributes);
+            element.onload = resolve;
+            element.onerror = () => reject(new Error('Chargement impossible : ' + (attributes.src || attributes.href)));
+            document.head.appendChild(element);
+        });
+        MAP['loading'] = Promise.all([
+            add('link', {'rel': 'stylesheet', 'href': 'leaflet/leaflet.css'}),
+            add('link', {'rel': 'stylesheet', 'href': 'leaflet/MarkerCluster.css'}),
+            add('script', {'src': 'leaflet/leaflet.js'}).then(() => add('script', {'src': 'leaflet/leaflet.markercluster.js'})),
+        ]);
+    }
+    return MAP['loading'];
+}
+
+function create_map() {
+    const map = L.map('map', {'scrollWheelZoom': false, 'worldCopyJump': true, 'minZoom': 2});
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        'attribution': '&copy; <a href="https://www.openstreetmap.org/copyright">contributeurs OpenStreetMap</a>',
+        'maxZoom': 18,
+    }).addTo(map);
+    // The page scrolls inside the AFIG site: the wheel zooms only after a click on the map
+    map.on('click focus', () => map.scrollWheelZoom.enable());
+    map.on('mouseout blur', () => map.scrollWheelZoom.disable());
+    // Leaflet stops the clicks inside a popup: bind its button when it opens
+    map.on('popupopen', (event) => {
+        const button = event.popup.getElement().querySelector('.map-to-list');
+        if(button) button.addEventListener('click', () => show_in_list(button.dataset.target));
+    });
+    MAP['cluster'] = L.markerClusterGroup({
+        'showCoverageOnHover': false, 'maxClusterRadius': 45, 'spiderfyOnMaxZoom': true,
+        // at city level (zoom 11 and more) show every establishment instead of nested groups
+        'disableClusteringAtZoom': 11,
+        'iconCreateFunction': (cluster) => {
+            const N = cluster.getAllChildMarkers().reduce((sum, m) => sum + m.options.count, 0);
+            return map_icon(N, 'map-cluster');
+        },
+    }).addTo(map);
+    MAP['map'] = map;
+}
+
+function map_icon(N, className) {
+    if(N==1) { // a single company: a small dot, so that the establishments of a city can be seen all at once
+        return L.divIcon({'className': 'map-pin map-dot ' + className, 'html': '', 'iconSize': [16, 16]});
+    }
+    const size = Math.round(30 + 6*Math.log2(N));
+    return L.divIcon({'className': 'map-pin ' + className, 'html': `<span>${N}</span>`, 'iconSize': [size, size]});
+}
+
+function map_popup(group) {
+    const N = group['entries'].length;
+    if(N==1) { // a single company: its name in large, its address, its links
+        const entry = group['entries'][0];
+        const jobs = get_string(entry['Jobs']);
+        const where = group['addresses'][0] || group['label'];
+        let txt = `<div class="map-popup map-popup-single"><p class="map-popup-title"><a target="_blank" href="${entry['url']}">${entry['Name']}${NEW_TAB}</a></p>`;
+        txt += `<p class="map-popup-where">${esc(where)}</p>`;
+        if(group['country_only']) {
+            txt += '<p class="map-popup-hint">Ville non précisée : position du pays.</p>';
+        }
+        const description = strip_html(get_string(entry['Description']));
+        if(description!='') {
+            txt += `<p class="map-popup-description">${esc(description)}</p>`;
+        }
+        txt += '<p class="map-popup-actions">';
+        if(jobs!='') {
+            txt += `<a class="map-popup-jobs" target="_blank" href="${jobs}">Offres d'emploi<span class="visually-hidden"> chez ${esc(entry['Name'])} (nouvel onglet)</span></a>`;
+        }
+        txt += `<button type="button" class="map-to-list" data-target="${group['list_id']}">Voir dans la liste</button></p></div>`;
+        return txt;
+    }
+    let txt = `<div class="map-popup"><p class="map-popup-title">${group['label']} <span class="map-popup-count">${plural_companies(N)}</span></p>`;
+    if(group['country_only']) {
+        txt += '<p class="map-popup-hint">Ville non précisée : position du pays.</p>';
+    }
+    txt += '<ul role="list">';
+    group['entries'].forEach((entry, k) => {
+        const jobs = get_string(entry['Jobs']);
+        const address = group['addresses'][k];
+        txt += `<li><span class="map-popup-company"><a target="_blank" href="${entry['url']}">${entry['Name']}${NEW_TAB}</a>`;
+        if(address) {
+            txt += `<span class="map-popup-address">${esc(address)}</span>`;
+        }
+        txt += '</span>';
+        if(jobs!='') {
+            txt += ` <a class="map-popup-jobs" target="_blank" href="${jobs}">Offres<span class="visually-hidden"> d'emploi chez ${esc(entry['Name'])} (nouvel onglet)</span></a>`;
+        }
+        txt += '</li>';
+    });
+    txt += `</ul><button type="button" class="map-to-list" data-target="${group['list_id']}">Voir dans la liste</button></div>`;
+    return txt;
+}
+
+function display_map(entries) {
+    load_map_library().then(() => {
+        if(MAP['map']==null) create_map();
+        const [groups, N_unplaced] = map_groups(entries);
+        MAP['cluster'].clearLayers();
+        const markers = [];
+        for(const group of groups.values()) {
+            const N = group['entries'].length;
+            const name = N==1 ? `${group['entries'][0]['Name']} (${group['label']})` : `${group['label']} : ${plural_companies(N)}`;
+            const marker = L.marker(group['coords'], {
+                'icon': map_icon(N, group['country_only'] ? 'map-country' : 'map-city'),
+                'title': name, 'alt': name,
+                'count': N, 'keyboard': true,
+            });
+            marker.bindPopup(() => map_popup(group), {'maxWidth': 300, 'autoPanPadding': [20, 20]});
+            markers.push(marker);
+        }
+        MAP['cluster'].addLayers(markers);
+        MAP['bounds'] = markers.length>0 ? L.latLngBounds(markers.map((m) => m.getLatLng())) : null;
+        MAP['map'].invalidateSize();
+        map_frame('fit');
+        const note = document.querySelector('#map-note');
+        let txt = "Un marqueur à l'adresse de l'établissement quand elle est connue (registre SIRENE), sinon au centre de la ville ; un cercle en pointillés indique un pays sans ville précisée. La vue « Localité » donne les mêmes informations sous forme de liste.";
+        if(N_unplaced>0) {
+            txt = (N_unplaced>1 ? `${N_unplaced} entreprises présentes à l'international sans lieu précis ne sont pas sur la carte. `
+                : "1 entreprise présente à l'international sans lieu précis n'est pas sur la carte. ") + txt;
+        }
+        note.textContent = txt;
+    }).catch((error) => {
+        document.querySelector('#map-note').textContent = 'La carte ne peut pas être chargée. ' + error.message;
+    });
+}
+
+function map_frame(frame) {
+    if(MAP['map']==null) return;
+    if(frame=='fit') {
+        if(MAP['bounds']!=null) MAP['map'].fitBounds(MAP['bounds'], {'padding': [30, 30], 'maxZoom': 11});
+        else MAP['map'].fitBounds(MAP_FRAMES['world']);
+        return;
+    }
+    MAP['map'].fitBounds(MAP_FRAMES[frame]);
+}
+
+map_element.addEventListener('click', (event) => {
+    const frame = event.target.closest('.map-frame');
+    if(frame) {
+        map_frame(frame.dataset.frame);
+        return;
+    }
+});
+
+// From a marker of the map to the heading of the place view
+function show_in_list(target_id) {
+    MAP['map'].closePopup();
+    UX['sorting']['place'].checked = true;
+    update_display();
+    const jump = () => jump_to_target(document.getElementById(target_id));
+    if(document.documentElement.classList.contains('embedded') && window.parentIFrame!=undefined) {
+        // the list is much taller than the map: let the AFIG page resize the iframe first
+        window.parentIFrame.size();
+        setTimeout(jump, 250);
+    }
+    else {
+        jump();
+    }
 }
