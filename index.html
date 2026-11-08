@@ -43,10 +43,19 @@
         .card.lab .go { color: var(--lab); }
         .note { margin-top: 2rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.86rem; }
         .note p { margin: 0.3rem 0 0; }
+/* barre commune aux pages AFIG (équipes, entreprises, carte), comme sur research-team */
+        .sites { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 7px max(16px, calc((100% - 1368px)/2)); background: #18181b; font-family: var(--font); font-size: 13px; line-height: 20px; }
+        .sites a { color: #a1a1aa; text-decoration: none; }
+        .sites a:hover, .sites a:focus-visible { color: #ffffff; text-decoration: underline; }
+        .sites a[aria-current] { color: #ffffff; font-weight: 600; }
+        .sites .afig { font-weight: 800; color: #a2d026; }
+        .sites .gh { margin-left: auto; }
+        .embedded .sites { display: none; }  /* dans le site de l'AFIG, qui a sa propre navigation */
         @media (max-width: 820px) { .cards { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
+    <nav class="sites" aria-label="Pages de l'AFIG"><a class="afig" href="https://www.asso-afig.fr/" target="_blank" rel="noopener">AFIG</a><a href="https://afig-asso.github.io/research-team/">Équipes de recherche</a><a href="https://afig-asso.github.io/entreprises/">Entreprises</a><a href="https://afig-asso.github.io/cartographie/">Carte de France</a><a class="gh" href="https://github.com/Afig-Asso/Afig-Asso.github.io">GitHub</a></nav>
     <header>
         <div class="wrap">
             <p class="eyebrow">AFIG · Association Française d'Informatique Graphique</p>
